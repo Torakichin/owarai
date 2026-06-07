@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>この芸人は誰？クイズ</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        html, body {
+            height: 100%;
+            overflow: hidden;
+            background-color: #f5f5f7;
+            font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 450px;
+            height: 100%;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            padding: 24px 16px;
+        }
+
+        header {
+            text-align: center;
+            width: 100%;
+        }
+
+        h1 {
+            font-size: 22px;
+            color: #1d1d1f;
+            font-weight: 700;
+        }
+
+        .subtitle {
+            font-size: 13px;
+            color: #86868b;
+            margin-top: 4px;
+        }
+
+        .grid-container {
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            gap: 8px;
+            margin: auto 0;
+        }
+
+        .card {
+            position: relative;
+            background-color: #e5e5ea;
+            border-radius: 12px;
+            overflow: hidden;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .card img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: filter 0.3s ease;
+        }
+
+        .card .name-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 8px;
+            text-align: center;
+            color: #ffffff;
+            font-weight: bold;
+            font-size: 14px;
+            line-height: 1.3;
+            background-color: rgba(0, 0, 0, 0.55);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            word-break: break-all;
+            pointer-events: none;
+        }
+
+        .card.revealed img {
+            filter: grayscale(30%) brightness(60%);
+        }
+
+        .card.revealed .name-overlay {
+            opacity: 1;
+        }
+
+        footer {
+            width: 100%;
+            min-height: 54px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .btn-reset {
+            width: 100%;
+            padding: 16px;
+            font-size: 16px;
+            font-weight: bold;
+            color: #ffffff;
+            background-color: #0071e3;
+            border: none;
+            border-radius: 14px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0, 113, 227, 0.3);
+            transition: background-color 0.2s, transform 0.1s;
+            display: none;
+        }
+
+        .btn-reset:active {
+            background-color: #005bb5;
+            transform: scale(0.98);
+        }
+
+        /* 読み込み中メッセージ用スタイル */
+        .loading-text {
+            grid-column: span 3;
+            grid-row: span 3;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #86868b;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>この芸人は誰？クイズ</h1>
+        <p class="subtitle">画像タップで正解を表示</p>
+    </header>
+
+    <div class="grid-container" id="grid">
+        <div class="loading-text">画像を読み込み中...</div>
+    </div>
+
+    footer>
+        <button class="btn-reset" id="resetBtn" onclick="renderGrid()">もう一度遊ぶ</button>
+    </footer>
+</div>
+
+<script>
+    // ==========================================================
+    // 【設定】あなたのGitHubの情報を入力してください
+    // ==========================================================
+    const GITHUB_USER = 'Torakichin'; 
+    const GITHUB_REPO = 'owarai'; 
+    const IMAGE_FOLDER = 'img'; // フォルダ名（通常はそのままでOK）
+
+    // 取得した画像リストを記憶しておく配列（APIの節約のため）
+    let cachedImageFiles = [];
+
+    // Fisher-Yatesのシャッフルアルゴリズム
+    function shuffle(array) {
+        const clone = [...array];
+        for (let i = clone.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [clone[i], clone[j]] = [clone[j], clone[i]];
+        }
+        return clone;
+    }
+
+    // GitHub APIからファイル名一覧を自動取得する関数
+    async function fetchImageFiles() {
+        const url = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/${IMAGE_FOLDER}`;
+        
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('画像リストの取得に失敗しました。設定を確認してください。');
+            const data = await response.json();
+
+            // 対応する画像拡張子
+            const validExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+            
+            // ファイルのみを抽出し、画像ファイルだけをフィルタリングしてファイル名の配列を作る
+            return data
+                .filter(item => item.type === 'file' && validExtensions.some(ext => item.name.toLowerCase().endsWith(ext)))
+                .map(item => item.name);
+
+        } catch (error) {
+            console.error(error);
+            return [];
+        }
+    }
+
+    // グリッドを生成して描画するメイン処理
+    async function renderGrid() {
+        const gridContainer = document.getElementById('grid');
+        const resetBtn = document.getElementById('resetBtn');
+        
+        resetBtn.style.display = 'none';
+        gridContainer.innerHTML = '<div class="loading-text">画像を読み込み中...</div>';
+
+        // 初回のみGitHub APIから画像一覧を取得（「もう一度遊ぶ」の時は通信しない）
+        if (cachedImageFiles.length === 0) {
+            cachedImageFiles = await fetchImageFiles();
+        }
+
+        // 画像が9枚未満の場合のエラーハンドリング
+        if (cachedImageFiles.length < 9) {
+            gridContainer.innerHTML = `<p style="grid-column: span 3; text-align:center; color:#ff3b30; font-size:14px; padding:20px;">
+                画像が9枚以上見つかりません。<br>
+                GitHub上の「${IMAGE_FOLDER}」フォルダと、HTML内の設定（ユーザー名/リポジトリ名）を確認してください。
+            </p>`;
+            return;
+        }
+
+        gridContainer.innerHTML = ''; // 読み込み中メッセージをクリア
+
+        // 取得したリストからランダムに9枚を選出
+        const selectedImages = shuffle(cachedImageFiles).slice(0, 9);
+
+        selectedImages.forEach(fileName => {
+            // 拡張子を除いた名前を取得
+            const name = fileName.substring(0, fileName.lastIndexOf('.')) || fileName;
+
+            // 各カード要素の組み立て
+            const card = document.createElement('div');
+            card.className = 'card';
+            
+            const img = document.createElement('img');
+            // ローカルでもGitHub Pages上でも動くよう相対パスで指定
+            img.src = `${IMAGE_FOLDER}/${fileName}`;
+            img.alt = name;
+            
+            const overlay = document.createElement('div');
+            overlay.className = 'name-overlay';
+            overlay.textContent = name;
+
+            card.appendChild(img);
+            card.appendChild(overlay);
+
+            // クリックイベント
+            card.addEventListener('click', () => {
+                if (!card.classList.contains('revealed')) {
+                    card.classList.add('revealed');
+                    resetBtn.style.display = 'block'; // いずれかが押されたらリセット表示
+                }
+            });
+
+            gridContainer.appendChild(card);
+        });
+    }
+
+    // 画面起動時に実行
+    window.onload = renderGrid;
+</script>
+
+</body>
+</html>
